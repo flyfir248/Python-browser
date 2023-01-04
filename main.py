@@ -63,7 +63,7 @@ class Browser(QMainWindow):
 
         # Create an instance of QMediaPlayer and set the QVideoWidget as the video output
         self.mediaPlayer = QMediaPlayer(self)
-        self.mediaPlayer.setVideoOutput(self.videoWidget)
+        self.videoWidget.setMediaObject(self.mediaPlayer)
 
         # Create a flag to track whether a video is being played or not
         self.isPlaying = False
@@ -77,7 +77,7 @@ class Browser(QMainWindow):
             } else {
                 window.hasVideos
                 }
-    """, self.onJavaScriptResult)
+        """, self.onJavaScriptResult)
 
     def onJavaScriptResult(self, result):
         # If the page has videos, try to play each one until a successful playback is achieved
@@ -87,18 +87,34 @@ class Browser(QMainWindow):
                 var sources = [];
                 for (var i = 0; i < videos.length; i++) {
                     for (var j = 0; j < videos[i].children.length; j++) {
-                        if (videos[i].children[j].tagName === 'SOURCE') {
-                            sources.push(videos[i].children[j].src);
+                        var source = videos[i].children[j];
+                        if (source.type == 'video/mp4') {
+                            sources.push(source.src);
                         }
                     }
                 }
                 window.videoSources = sources;
-            """, self.tryPlayVideo)
+            """, self.onVideoSources)
+
+    def onVideoSources(self, sources):
+
+        # Set the sources list as the current playlist of the QMediaPlayer and try to play the first video
+        self.mediaPlayer.setPlaylist(sources)
+        self.mediaPlayer.play()
+        self.isPlaying = True
+
+        # Connect the mediaStatusChanged signal of the QMediaPlayer to a custom slot
+        self.mediaPlayer.mediaStatusChanged.connect(self.onMediaStatusChanged)
+
+        # Show the QVideoWidget and hide the QWebEngineView
+        self.videoWidget.show()
+        self.view.hide()
+
 
     def tryPlayVideo(self, result):
         sources = result
         for src in sources:
-            self.mediaPlayer.setMedia(QMediaContent(QUrl(src)))
+            self.mediaPlayer.setCurrentSource(Phonon.MediaSource(url))
             if self.mediaPlayer.error() == QMediaPlayer.NoError:
                 self.videoWidget.show()
                 self.mediaPlayer.play()
@@ -110,10 +126,17 @@ class Browser(QMainWindow):
         self.mediaPlayer.mediaStatusChanged.connect(self.onMediaStatusChanged)
 
     def onMediaStatusChanged(self, status):
-        # If the video has ended, stop the QMediaPlayer and set the flag to False
+        # If the playback of the current video has finished, try to play the next video
         if status == QMediaPlayer.EndOfMedia:
-            self.mediaPlayer.stop()
-            self.isPlaying = False
+            index = self.mediaPlayer.currentIndex() + 1
+            if index < self.mediaPlayer.playlist().mediaCount():
+                self.mediaPlayer.setCurrentIndex(index)
+                self.mediaPlayer.play()
+            else:
+                self.isPlaying = False
+                self.mediaPlayer.stop()
+                self.videoWidget.hide()
+                self.view.show()
             
     def load(self, url):
         self.view.load(QUrl(url))
