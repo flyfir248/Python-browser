@@ -1,7 +1,8 @@
-from PyQt5.QtCore import QUrl
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QLineEdit, QGridLayout, QWidget
+from PyQt5.QtCore import QUrl, Qt, QEvent
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QLineEdit, QGridLayout, QWidget, QHBoxLayout, QVBoxLayout, QLabel
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-
+from PyQt5.QtMultimediaWidgets import QVideoWidget
+from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
 
 class Browser(QMainWindow):
     def __init__(self):
@@ -12,8 +13,18 @@ class Browser(QMainWindow):
         self.setWindowTitle('Web Browser')
         self.setGeometry(100, 100, 1200, 800)
 
+        # Create the QWebEngineView and QVideoWidget
         self.view = QWebEngineView(self)
-        self.setCentralWidget(self.view)
+        self.videoWidget = QVideoWidget(self)
+        self.videoWidget.hide()
+
+        # Create the main layout and add the QWebEngineView and QVideoWidget to it
+        layout = QVBoxLayout()
+        layout.addWidget(self.view)
+        layout.addWidget(self.videoWidget)
+        mainWidget = QWidget(self)
+        mainWidget.setLayout(layout)
+        self.setCentralWidget(mainWidget)
 
         # Create a QLineEdit widget and add it to a toolbar
         # at the top of the main window
@@ -47,6 +58,63 @@ class Browser(QMainWindow):
         # Create an instance of the HomePage class
         self.homePage = HomePage(self)
 
+        # Connect the loadFinished signal of the QWebEngineView to a custom slot
+        self.view.loadFinished.connect(self.onLoadFinished)
+
+        # Create an instance of QMediaPlayer and set the QVideoWidget as the video output
+        self.mediaPlayer = QMediaPlayer(self)
+        self.mediaPlayer.setVideoOutput(self.videoWidget)
+
+        # Create a flag to track whether a video is being played or not
+        self.isPlaying = False
+
+    def onLoadFinished(self):
+        # Check if the page contains any video elements
+        self.view.page().runJavaScript("""
+            var videos = document.getElementsByTagName('video');
+            if (videos.length > 0) {
+                window.hasVideos = true;
+            } else {
+                window.hasVideos
+                }
+    """, self.onJavaScriptResult)
+
+    def onJavaScriptResult(self, result):
+        # If the page has videos, try to play each one until a successful playback is achieved
+        if result:
+            self.view.page().runJavaScript("""
+                var videos = document.getElementsByTagName('video');
+                var sources = [];
+                for (var i = 0; i < videos.length; i++) {
+                    for (var j = 0; j < videos[i].children.length; j++) {
+                        if (videos[i].children[j].tagName === 'SOURCE') {
+                            sources.push(videos[i].children[j].src);
+                        }
+                    }
+                }
+                window.videoSources = sources;
+            """, self.tryPlayVideo)
+
+    def tryPlayVideo(self, result):
+        sources = result
+        for src in sources:
+            self.mediaPlayer.setMedia(QMediaContent(QUrl(src)))
+            if self.mediaPlayer.error() == QMediaPlayer.NoError:
+                self.videoWidget.show()
+                self.mediaPlayer.play()
+                self.isPlaying = True
+                break
+
+    def onVideoPlayed(self, result):
+        # Connect the mediaStatusChanged signal of the QMediaPlayer to a custom slot
+        self.mediaPlayer.mediaStatusChanged.connect(self.onMediaStatusChanged)
+
+    def onMediaStatusChanged(self, status):
+        # If the video has ended, stop the QMediaPlayer and set the flag to False
+        if status == QMediaPlayer.EndOfMedia:
+            self.mediaPlayer.stop()
+            self.isPlaying = False
+            
     def load(self, url):
         self.view.load(QUrl(url))
 
@@ -60,7 +128,6 @@ class Browser(QMainWindow):
         self.view.hide()
         self.homePage.show()
 
-
 class HomePage(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
@@ -73,7 +140,8 @@ class HomePage(QWidget):
         self.setLayout(grid)
 
         # Add a button for each visited website
-        visitedWebsites = ['https://en.wikipedia.org/wiki/Main_Page', 'https://www.google.de/', 'https://www.youtube.com/']
+        visitedWebsites = ['https://en.wikipedia.org/wiki/Main_Page', 'https://www.google.de/',
+                               'https://www.youtube.com/']
         row = 0
         col = 0
         for website in visitedWebsites:
@@ -100,4 +168,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
